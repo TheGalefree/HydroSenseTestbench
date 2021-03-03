@@ -32,9 +32,9 @@ main(void)
   configure_spi_pins(17, 18, 21, 22); // CS, D1, D0, CLK  
   if (spi_enable(SPI_BUS))  
   {  
-    spi_ctrl(SPI_BUS, SPI_CH0, SPI_MASTER, SPI_RXTX, /* use SPI_TX or SPI_RX depending on needs */  
-             SPI_DIV32, SPI_CLOCKMODE0, /* 48 MHz divided by 32 which gives 1.5MHz for 1.8MHz max in MCP3202, SPI mode 0 for MCP3202 */  
-             SPI_CE_ACT_LOW, SPI_OUTIN, 24); /* D1 is output and D0 is input, 24-bit transactions */  
+    spi_ctrl(SPI_BUS, SPI_CH0, SPI_MASTER, SPI_RXTX, /* use SPI_TX(write) or SPI_RX(read) or SPI_RXTX(r/w) depending on needs */  
+             SPI_DIV32, SPI_CLOCKMODE0, /* 48 MHz divided by 32 which gives 1.5MHz for 1.8MHz max in MCP3202; SPI mode 0 for MCP3202 */  
+             SPI_CE_ACT_LOW, SPI_OUTIN, 24); /* D0 is output and D1 is input, opposite to default, use SPI_INOUT for default; 24-bit transactions */  
   }  
   else  
   {  
