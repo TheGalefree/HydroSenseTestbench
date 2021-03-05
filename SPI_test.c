@@ -44,7 +44,7 @@ main(void)
   }  
   while(1)   
   {  
-    spi_transact(SPI_BUS, SPI_CH0, 0x553caa /*or integer to transmit data*/, &rxval);  
+    spi_transact(SPI_BUS, SPI_CH0, 0x01E000 /*or integer to transmit data*/, &rxval);  
     printf("Received: 0x%04x \n", rxval&0xffff);  
     iolib_delay_ms(500);  
   }  
