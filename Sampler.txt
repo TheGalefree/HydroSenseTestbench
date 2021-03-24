@@ -26,7 +26,7 @@
 #include <unistd.h> // write(), read(), close()
 
 #define SAMPLE_SIZE 15 //samples taken for each input (sample size x num_samples for total amount)
-#define NUM_SAMPLES 4 //number of measuring instruments; each one going through different mux input
+#define NUM_SAMPLES 4 //number of measuring instruments; each one going through different MUX input
 #define ESC 27
 #define BEG 1
 #define END 4
@@ -186,7 +186,7 @@ int main() {
 		}
 	}
 
-	//write to file
+	//write to file - current format is temporary and only for testing, this will be switched to CSV format
 	FILE *fp;
 	fp = fopen("datafile.txt", "w+");
 	for (size_t i = 0; i < SAMPLE_SIZE; i++) {
@@ -208,5 +208,5 @@ int main() {
 	} else {
 		printf("Success. %d packages received with %d samples each. Sequence was in sync.\n", SAMPLE_SIZE, NUM_SAMPLES);
 	}
-	return 0; // success
+	return 0;
 }
