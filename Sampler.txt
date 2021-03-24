@@ -3,6 +3,14 @@
  *
  *  Created on: Mar 19, 2021
  *      Author: Julian Dubeau
+ *      Code for UART read function taken from:
+ *      https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
+ *
+ *      This code is meant to run on a Debian Linux running on a BeagleBoneBlack which accepts UART data
+ *      sent from an Arduino Mega 2560 that sends packages encapsulated by custom protocol characters defined
+ *      below. It receives a sequence number for each package followed by a number of 16 bit integers representing
+ *      measurements taken by various instruments which it then writes to a datafile stored in the root
+ *      of this program.
  */
 // C library headers
 #include <stdio.h>
@@ -17,33 +25,27 @@
 #include <termios.h> // Contains POSIX terminal control definitions
 #include <unistd.h> // write(), read(), close()
 
-#define SAMPLE_SIZE 15
-#define NUM_SAMPLES 4
+#define SAMPLE_SIZE 15 //samples taken for each input (sample size x num_samples for total amount)
+#define NUM_SAMPLES 4 //number of measuring instruments; each one going through different mux input
 #define ESC 27
 #define BEG 1
 #define END 4
 typedef uint16_t sample_t;
 
-typedef struct {
+typedef struct { //package for a sequence # + 1 measurement for each instrument
 	uint16_t sequence;
 	sample_t samples[NUM_SAMPLES];
 } adc_data_t;
 
-static uint16_t currentSequence = 0;
-static uint16_t sampleNum = 0;
-static bool start = false;
-static bool firstStart = false;
-static uint16_t syncCounter = 0;
+static uint16_t currentSequence = 0; //tracks how many packages we receive; used for syncing sequence
+static uint16_t sampleNum = 0; //places instrument data in different parts of samples array
+static bool start = false; //tracks when we receive ESC BEG and can start writing likewise ESC END and can't write
+static bool firstStart = false; //tracks first number received in package to place as sequence number
+static uint16_t syncCounter = 0; //tracks how many times we were out of sync
 static adc_data_t data[SAMPLE_SIZE];
 
-/* discarded idea for enum
- typedef enum {
- ESC = 27, BEG = 1, END = 4
- } state_t;
- */
-//static state_t state;
 int main() {
-// Open the serial port. Change device path as needed
+// Open the serial port. Change device path as needed. tty01 used for UART1 on BBB
 	int serial_port = open("/dev/ttyO1", O_RDWR);
 
 // Create new termios struc, we call it 'tty' for convention
@@ -52,7 +54,7 @@ int main() {
 // Read in existing settings, and handle any error
 	if (tcgetattr(serial_port, &tty) != 0) {
 		printf("Error %i from tcgetattr: %s\n", errno, strerror(errno));
-		return 1;
+		return 9;
 	}
 
 	tty.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
@@ -75,83 +77,34 @@ int main() {
 // tty.c_oflag &= ~OXTABS; // Prevent conversion of tabs to spaces (NOT PRESENT ON LINUX)
 // tty.c_oflag &= ~ONOEOT; // Prevent removal of C-d chars (0x004) in output (NOT PRESENT ON LINUX)
 
-	tty.c_cc[VTIME] = 0;
-	tty.c_cc[VMIN] = 2;
+	tty.c_cc[VTIME] = 0; //*important* sets the amount of time to wait before timing out when using read function (in deciseconds) max of 10 seconds, 0 for infinite
+	tty.c_cc[VMIN] = 2; //*important* sets the *minimum* amount of bytes read by the read function before stepping out; using 2 for uint16
 
-// Set in/out baud rate to be 115200
+// Set in/out baud rate
 	cfsetispeed(&tty, B115200);
 	cfsetospeed(&tty, B115200);
 
 // Save tty settings, also checking for error
 	if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
 		printf("Error %i from tcsetattr: %s\n", errno, strerror(errno));
-		return 1;
+		return 9;
 	}
 
-// Allocate memory for read buffer, set size according to your needs
 	uint16_t read_buf = 0;
 
 	while (currentSequence < SAMPLE_SIZE) {
-
-		//discarded method
-		/*
-		 if (read(serial_port, &read_buf, sizeof(read_buf)) < 0) {
-		 printf("Error reading: %s", strerror(errno));
-		 return 1;
-		 } else {
-		 state_t state = read_buf;
-		 if (state == ESC) {
-		 if (read(serial_port, &read_buf, sizeof(read_buf)) < 0) {
-		 printf("Error reading: %s", strerror(errno));
-		 return 1;
-		 } else {
-		 if (read_buf == BEG) {
-		 for (size_t i = 0; i < NUM_SAMPLES + 1; i++) {
-		 if (read(serial_port, &read_buf, sizeof(read_buf)) < 0) {
-		 printf("Error reading: %s", strerror(errno));
-		 return 1;
-		 } else {
-		 if (read_buf == ESC) {
-		 switch (read_buf) {
-		 case ESC:
-		 //write escape to array
-		 break;
-		 case BEG:
-		 //error BEG after END in data
-		 break;
-		 case END:
-		 //end sequence
-		 break;
-		 default:
-		 //error non existent command after escape
-		 }
-		 } else {
-		 //write to array
-		 }
-		 }
-		 }
-		 if (start == true) {
-		 //error no end sequence
-		 }
-		 } else {
-		 //ESC but no BEG
-		 }
-		 }
-		 } else {
-		 //error ESC not detected
-		 }
-		 }*/
 
 		// ERROR LIST:
 		// 1: ERROR READING
 		// 2: ESC ESC WITH NO START
 		// 3: ESC BEG DETECTED WHILE WRITING
 		// 4: ESC END DETECTED WHILE NOT WRITING
-		// 5: NON-EXISTeNT COMMAND FOLLOWING ESC
+		// 5: NON-EXISTENT COMMAND FOLLOWING ESC
 		// 6: TOO MANY SAMPLES WITHOUT END SEQUENCE
 		// 7: NO ESC DETECTED WHILE NOT WRITING
 		// 8: ERROR CLOSING FILE
-		//method 2
+		// 9: ERROR WITH TERMIOS SETTINGS
+
 		if (read(serial_port, &read_buf, sizeof(read_buf)) < 0) { //read and check for read error
 			printf("Error reading: %s\n", strerror(errno));
 			return 1;
@@ -166,11 +119,18 @@ int main() {
 						if (start) { //if ESC again then write escape to array if we've started writing
 							if (firstStart) {
 								data[currentSequence].sequence = read_buf; //if first start then write to sequence number
-								//TO-DO check if sequence matches
 								firstStart = false;
-							} else {
-								data[currentSequence].samples[sampleNum] = read_buf; //if not first start then write to samples
-								sampleNum++;
+								if (currentSequence != read_buf) { //check if sequence matches
+									syncCounter++;
+								}
+							} else { //if not first start then write to samples
+								if (sampleNum < NUM_SAMPLES) { //first check if too many samples
+									data[currentSequence].samples[sampleNum] = read_buf;
+									sampleNum++;
+								} else {
+									printf("Error: Too many samples without end sequence.\n");
+									return 6;
+								}
 							}
 						} else {
 							printf("Error: ESC ESC with no start.\n");
@@ -226,9 +186,10 @@ int main() {
 		}
 	}
 
+	//write to file
 	FILE *fp;
 	fp = fopen("datafile.txt", "w+");
-	for (size_t i=0; i < SAMPLE_SIZE; i++) {
+	for (size_t i = 0; i < SAMPLE_SIZE; i++) {
 		fprintf(fp, "Sequence: %i\n", data[i].sequence);
 		fprintf(fp, "Sample 1: %x\n", data[i].samples[sampleNum++]);
 		fprintf(fp, "Sample 2: %x\n", data[i].samples[sampleNum++]);
@@ -245,7 +206,7 @@ int main() {
 	if (syncCounter > 0) {
 		printf("Warning: Out of sync detected %i times.", syncCounter);
 	} else {
-		printf("SUCCESSSSS\n");
+		printf("Success. %d packages received with %d samples each. Sequence was in sync.\n", SAMPLE_SIZE, NUM_SAMPLES);
 	}
 	return 0; // success
 }
