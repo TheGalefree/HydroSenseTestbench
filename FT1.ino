@@ -28,6 +28,7 @@ int S0 = 24;
 int S1 = 25;
 int S2 = 26;
 
+#define BAUD_RATE 115200
 #define NUM_SAMPLES 4 //number of measuring instruments to cycle sample inputs through the MUX
 #define ESC 27
 #define BEG 1
@@ -58,6 +59,10 @@ void sendPack(const adc_data_t* data) {
 
   Serial1.write(data->sequence); //send sequence number
   Serial1.write(data->sequence >> 8);
+  if (data->sequence == ESC) {
+    Serial1.write(ESC); //send another ESC if sequece is ESC
+    Serial1.write(ZERO);
+  }
   for (size_t i = 0; i < NUM_SAMPLES; i++) { //loop to send each sample
     if (data->samples[i] != ESC) {
       Serial1.write(data->samples[i]);
@@ -78,7 +83,7 @@ void sendPack(const adc_data_t* data) {
 }
 
 void setup() {
-  Serial1.begin(115200); //set baud rate
+  Serial1.begin(BAUD_RATE); //set baud rate
   pinMode(RX, INPUT); //set UART1 pins
   pinMode(TX, OUTPUT);
 
@@ -103,7 +108,7 @@ void setup() {
   //TCCR1B Register (Page 142) used to set prescaler (1/8/64/256/1024) or external/no clock source
   TCCR1B = 0;// reset TCCR1B register to all 0s
   TCCR1B |= (1 << WGM12); // turn on CTC mode which is set in TCCR1B for timer 1
-  TCCR1B |= (1 << CS10); //set to prescaler of 8 for max resolution
+  TCCR1B |= (1 << CS10); //set to prescaler of 1 for max resolution
 
   //TCNT1 Register (Page 143) is a combined 2 x 8-bit registers (TCNT1H and TCNT1L) that is constantly compared with OCR1A for CTC mode
   // and resets (and sends the interupt) as soon as the values match
