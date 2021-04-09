@@ -28,6 +28,9 @@ int S0 = 24;
 int S1 = 25;
 int S2 = 26;
 
+//GPIO for motorized ball valve
+int ballValve = 22;
+
 #define BAUD_RATE 115200
 #define NUM_SAMPLES 4 //number of measuring instruments to cycle sample inputs through the MUX
 #define ESC 27
@@ -83,6 +86,8 @@ void sendPack(const adc_data_t* data) {
 }
 
 void setup() {
+  pinMode(ballValve, OUTPUT);
+  digitalWrite(ballValve, HIGH); //open motorized valve
   Serial1.begin(BAUD_RATE); //set baud rate
   pinMode(RX, INPUT); //set UART1 pins
   pinMode(TX, OUTPUT);
@@ -194,4 +199,7 @@ void loop() {
   sendPack(adc_ptr); //send package
   currentSequence++; //increment sequence
   send_flag = false; //reset flag
+  if (Serial1.available() > 0) {
+    digitalWrite(ballValve, LOW); //if BBB sends stop bytes, close motorized valve
+  }
 }
