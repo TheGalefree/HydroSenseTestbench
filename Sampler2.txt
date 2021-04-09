@@ -25,7 +25,8 @@
 #include <termios.h> // Contains POSIX terminal control definitions
 #include <unistd.h> // write(), read(), close()
 
-#define SAMPLE_SIZE 3000 //samples taken for each input (sample size x num_samples for total amount)
+#define SAMPLE_SIZE 20000 //size of array to hold data, total time of system until shut off (segmentation fault) = SAMPLE_SIZE/100 seconds
+#define toiletSize 1.6
 #define NUM_SAMPLES 4 //number of measuring instruments; each one going through different MUX input
 #define ESC 27
 #define BEG 1
@@ -43,6 +44,9 @@ static bool start = false; //tracks when we receive ESC BEG and can start writin
 static bool firstStart = false; //tracks first number received in package to place as sequence number
 static uint16_t syncCounter = 0; //tracks how many times we were out of sync
 static adc_data_t data[SAMPLE_SIZE];
+static float gallons = 0.0; //tracks total flow
+static bool galReading = false; //makes sure that gallons value is updated only once per cycle
+static uint8_t stopCounter = 0; //counter rises when total gallons exceeds 1.6, but this makes sure it waits a second before ending sampling
 
 int main() {
 // Open the serial port. Change device path as needed. tty01 used for UART1 on BBB
@@ -92,7 +96,7 @@ int main() {
 
 	uint16_t read_buf = 0;
 
-	while (currentSequence < SAMPLE_SIZE) {
+	while (true) {
 
 		// ERROR LIST:
 		// 1: ERROR READING
@@ -151,6 +155,7 @@ int main() {
 							start = false;
 							sampleNum = 0;
 							currentSequence++;
+							galReading = true;
 						} else {
 							printf("Error: ESC END detected while not writing.\n");
 							return 4;
@@ -184,17 +189,36 @@ int main() {
 				}
 			}
 		}
+
+		if (galReading) {
+			gallons += 4.64 * (data[currentSequence - 1].samples[3]) / 4095. * 0.01 / 60 * 0.9226; //voltage*ratio of 12 bits*time sample*conversion/calibration factor
+			galReading = false;
+			if ((currentSequence - 1) % 100 == 0) {
+				printf("Total gallons: %f\n", gallons);
+				printf("Flow Rate: %f\n", 4.64 * (data[currentSequence - 1].samples[3]) / 4095.0 * 0.9226);
+				printf("Impeller voltage: %x\n", data[currentSequence - 1].samples[0]); //remove this
+				if (gallons > (toiletSize - 0.15)) {
+					write(serial_port, "stop", 4);
+				}
+			}
+			if (gallons > (toiletSize)) {
+				stopCounter++;
+			}
+		}
+		if (stopCounter > 100) {
+			break;
+		}
 	}
 
 	//write to file - current format is temporary and only for testing, this will be switched to CSV format
 	FILE *fp;
 	fp = fopen("datafile.txt", "w+");
-	for (size_t i = 0; i < SAMPLE_SIZE; i++) {
+	for (size_t i = 0; i < currentSequence; i++) {
 		fprintf(fp, "%i,", data[i].sequence);
 		fprintf(fp, "%x,", data[i].samples[sampleNum++]);
 		fprintf(fp, "%x,", data[i].samples[sampleNum++]);
 		fprintf(fp, "%x,", data[i].samples[sampleNum++]);
-		fprintf(fp, "%x,", data[i].samples[sampleNum]);
+		fprintf(fp, "%x\n", data[i].samples[sampleNum]);
 		sampleNum = 0;
 	}
 	if (fclose(fp) < 0) {
@@ -206,7 +230,7 @@ int main() {
 	if (syncCounter > 0) {
 		printf("Warning: Out of sync detected %i times.", syncCounter);
 	} else {
-		printf("Success. %d packages received with %d samples each. Sequence was in sync.\n", SAMPLE_SIZE, NUM_SAMPLES);
+		printf("Success. %d packages received with %d samples each. Sequence was in sync.\n", currentSequence, NUM_SAMPLES);
 	}
 	return 0;
 }
